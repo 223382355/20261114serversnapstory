@@ -806,6 +806,76 @@
     return canvas;
   }
 
+  // 在云端海报快照上重绘「家人的留言」区块（换设备后也能在海报里看到留言）
+  // canvas 里已经画好整张海报图片，这里只覆盖左侧留言区，右侧二维码保持不动
+  function paintComments(canvas, recipe) {
+    const W = 1080, H = 1820;
+    const ctx = canvas.getContext("2d");
+    const t = THEMES[recipe.style] || THEMES["文艺"];
+    const accent = t.accent, text = t.text, soft = t.soft;
+    ctx.textBaseline = "top";
+
+    // 从原图两侧取背景色，还原同一条渐变，避免覆盖后出现色差
+    let top = null, bottom = null;
+    try {
+      const a = ctx.getImageData(20, 1352, 1, 1).data;
+      const b = ctx.getImageData(20, 1810, 1, 1).data;
+      top = `rgb(${a[0]},${a[1]},${a[2]})`;
+      bottom = `rgb(${b[0]},${b[1]},${b[2]})`;
+    } catch (e) {
+      top = rgb(t.bg1); bottom = rgb(t.bg2);
+    }
+    const bg = ctx.createLinearGradient(0, 1352, 0, H);
+    bg.addColorStop(0, top);
+    bg.addColorStop(1, bottom);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 1350, 730, H - 1350);
+
+    // 标题
+    ctx.font = font(52, false, true);
+    ctx.fillStyle = rgb(accent);
+    ctx.fillText("家人的留言", 92, 1362);
+
+    // 留言正文（排版规则与 renderPoster 保持一致）
+    const comments = Array.isArray(recipe.comments) ? recipe.comments : [];
+    const commentFont = font(44, false, false);
+    let y = 1422, totalLines = 0, shown = 0, overflow = false;
+    if (comments.length) {
+      for (const c of comments.slice(0, 8)) {
+        const name = clamp(c.name || "家人", 10);
+        const content = clamp(c.content || "", 120);
+        const lines = wrapText(ctx, `${name}：${content}`, 590, 2);
+        if (totalLines + lines.length > 6) { overflow = true; break; }
+        ctx.font = commentFont;
+        ctx.fillStyle = rgb(text, 0.9);
+        lines.forEach((line) => {
+          ctx.fillText(line, 92, y);
+          y += 50;
+        });
+        totalLines += lines.length;
+        shown += 1;
+      }
+      if (comments.length > shown) overflow = true;
+      if (overflow) {
+        ctx.font = font(40, false, false);
+        ctx.fillStyle = rgb(soft);
+        ctx.fillText(`还有 ${comments.length - shown} 条留言，扫码查看`, 92, 1718);
+      }
+    } else {
+      ctx.font = font(51, false, false);
+      ctx.fillStyle = rgb(soft);
+      ctx.fillText("还没有留言，", 92, 1422);
+      ctx.fillText("扫码写下第一句话吧", 92, 1494);
+    }
+
+    // 品牌行
+    ctx.font = font(42, false, false);
+    ctx.fillStyle = rgb(soft, 0.75);
+    ctx.fillText("记忆相册 · 把今天留成一幅画", 92, 1768);
+
+    return canvas;
+  }
+
   // ---------------- 本机存储（按 userId 隔离） ----------------
   const USER_KEY = "snapstory.userId";
 
@@ -907,7 +977,7 @@
     THEMES, RANDOM_STYLES, FALLBACK_TITLES, FALLBACK_CAPTIONS, FALLBACK_BLESSINGS,
     formatDateCN, parseExif, loadImage, fileToDataUrl, compressDataUrl,
     getCoords, resolvePlaceWeather, analyzePhoto, getConfig, setConfig,
-    setCurrentStyle, renderPoster, pageUrlFor, encodePayload, decodePayload,
+    setCurrentStyle, renderPoster, paintComments, pageUrlFor, encodePayload, decodePayload,
     savePoster, getPoster, listPosters, updatePoster, newId, newSyncKey, clamp, font, rgb, makeQrCanvas,
     getUserId, setUserId, newUser, storageKey
   };

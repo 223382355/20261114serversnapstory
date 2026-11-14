@@ -1448,6 +1448,23 @@
     return u.href;
   }
 
+  // 云端海报是生成时的快照，把留言重新画进「家人的留言」区域
+  function paintRemoteComments(posterEl, recipe, comments, token) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (token !== historyToken) return;
+      try {
+        const c = document.createElement("canvas");
+        c.width = 1080; c.height = 1820;
+        c.getContext("2d").drawImage(img, 0, 0, 1080, 1820);
+        SnapStory.paintComments(c, { style: recipe.style || "文艺", comments: comments });
+        posterEl.src = c.toDataURL("image/jpeg", 0.92);
+      } catch (e) { /* 取不到像素就保留原图 */ }
+    };
+    img.src = recipe.remoteUrl;
+  }
+
   async function openHistoryAt(index) {
     const total = galleryItems.length;
     if (!total) return;
@@ -1480,30 +1497,42 @@
         SnapBackend.fetchComments(recipe.syncKey).then((list) => {
           if (token !== historyToken) return;
           renderHistoryComments({ comments: list });
+          if (list.length) paintRemoteComments(poster, recipe, list, token);
         }).catch(() => { /* 云端取不到就显示空 */ });
       }
       return;
     }
 
-    try {
-      const canvas = document.createElement("canvas");
-      await SnapStory.renderPoster(canvas, recipe);
-      if (token !== historyToken) return;
-      poster.src = canvas.toDataURL("image/jpeg", 0.9);
-    } catch (e) {
-      poster.src = recipe.photo || "";
-    }
-    poster.style.opacity = "1";
+    // 本机海报：先渲染，再补留言；补到后重画，让留言出现在海报里
+    let canvas = null;
+    const repaint = async () => {
+      try {
+        if (!canvas) canvas = document.createElement("canvas");
+        await SnapStory.renderPoster(canvas, recipe);
+        if (token !== historyToken) return;
+        poster.src = canvas.toDataURL("image/jpeg", 0.9);
+      } catch (e) {
+        poster.src = recipe.photo || "";
+      }
+      if (token === historyToken) poster.style.opacity = "1";
+    };
+    await repaint();
+    if (token !== historyToken) return;
     renderHistoryComments(recipe);
 
+    const afterMerge = (list) => {
+      if (token !== historyToken) return;
+      if (!mergeComments(recipe, list)) return;
+      SnapStory.updatePoster(recipe);
+      renderHistoryComments(recipe);
+      repaint();
+    };
+
+    if (recipe.syncKey && window.SnapBackend) {
+      SnapBackend.fetchComments(recipe.syncKey).then(afterMerge).catch(() => { /* 离线时看本机留言 */ });
+    }
     if (recipe.syncKey && window.SnapSync) {
-      SnapSync.fetchAll(recipe.syncKey).then((list) => {
-        if (token !== historyToken) return;
-        if (mergeComments(recipe, list)) {
-          SnapStory.updatePoster(recipe);
-          renderHistoryComments(recipe);
-        }
-      }).catch(() => { /* 离线时看本机留言 */ });
+      SnapSync.fetchAll(recipe.syncKey).then(afterMerge).catch(() => { /* 离线时看本机留言 */ });
     }
   }
 
@@ -1667,6 +1696,7 @@
         remoteUrl: p.url,
         createdAt: Number(p.meta && p.meta.createdAt) || p.at || 0,
         title: (p.meta && p.meta.title) || "云端保存的海报",
+        style: (p.meta && p.meta.style) || "文艺",
         dateText: (p.meta && p.meta.dateText) || (p.at ? new Date(p.at).toLocaleDateString("zh-CN") : ""),
         comments: []
       }));

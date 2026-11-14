@@ -829,7 +829,7 @@
     bg.addColorStop(0, top);
     bg.addColorStop(1, bottom);
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 1350, 730, H - 1350);
+    ctx.fillRect(0, 1350, 704, H - 1350);
 
     // 标题
     ctx.font = font(52, false, true);

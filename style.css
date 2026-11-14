@@ -588,21 +588,6 @@ textarea:focus, input:focus { border-color: rgba(180, 85, 45, 0.55); }
 .gallery-meta { display: block; padding: 8px 10px 10px; }
 .gallery-meta strong { display: block; font-size: 16px; color: var(--ink); }
 .gallery-meta small { display: block; margin-top: 2px; font-size: 14px; color: var(--soft); }
-.gallery-comment {
-  display: block;
-  margin-top: 7px;
-  padding: 5px 8px;
-  border-left: 3px solid var(--line);
-  border-radius: 6px;
-  background: rgba(90, 76, 58, 0.05);
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.gallery-comment.has { border-left-color: var(--accent); background: rgba(180, 85, 45, 0.09); color: var(--accent-deep); }
 .gallery-empty { margin: 18px 0 4px; color: var(--soft); font-size: 16px; text-align: center; }
 .gallery-back {
   border: 0;

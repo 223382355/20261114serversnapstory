@@ -1564,14 +1564,57 @@
     zone.addEventListener("pointercancel", () => { tracking = false; });
   })();
 
-  // 卡片上的留言摘要：条数 + 最新一条
-  function commentSummary(item) {
+  function loadImageCORS(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  function gallerySubText(item) {
+    const n = Array.isArray(item.comments) ? item.comments.length : 0;
+    const date = item.dateText || "";
+    const tail = n ? `${n} 条留言` : "还没有留言";
+    return date ? `${date} · ${tail}` : tail;
+  }
+
+  // 云端海报：把留言画进「家人的留言」区域，再换成缩略画布
+  async function paintRemoteThumb(card, img, item, token) {
     const list = Array.isArray(item.comments) ? item.comments : [];
-    if (!list.length) return "还没有留言";
-    const last = list[list.length - 1] || {};
-    const who = String(last.name || "家人").slice(0, 6);
-    const text = String(last.content || "").replace(/\s+/g, " ").slice(0, 16);
-    return `${list.length} 条留言 · ${who}：${text}`;
+    if (!list.length || !item.remoteUrl) return;
+    try {
+      const image = await loadImageCORS(item.remoteUrl);
+      if (token !== galleryToken) return;
+      const full = document.createElement("canvas");
+      full.width = 1080; full.height = 1820;
+      const fctx = full.getContext("2d");
+      fctx.drawImage(image, 0, 0, 1080, 1820);
+      SnapStory.paintComments(full, { style: item.style || "文艺", comments: list });
+      const thumb = document.createElement("canvas");
+      thumb.className = "gallery-thumb";
+      thumb.width = 270; thumb.height = 455;
+      thumb.getContext("2d").drawImage(full, 0, 0, thumb.width, thumb.height);
+      if (token !== galleryToken) return;
+      if (img.parentNode === card) card.replaceChild(thumb, img);
+    } catch (e) { /* 取不到像素就保留原图 */ }
+  }
+
+  async function drawLocalThumb(thumb, item, token) {
+    try {
+      const full = document.createElement("canvas");
+      await SnapStory.renderPoster(full, item);
+      if (token !== galleryToken) return;
+      thumb.getContext("2d").drawImage(full, 0, 0, thumb.width, thumb.height);
+    } catch (e) {
+      const img = new Image();
+      img.onload = () => {
+        try { thumb.getContext("2d").drawImage(img, 0, 0, thumb.width, thumb.height); } catch (e2) { /* 忽略 */ }
+      };
+      img.src = item.photo || "";
+    }
   }
 
   // 异步补全每张卡片的留言（云端可用时），失败静默保留本机结果
@@ -1585,15 +1628,13 @@
         if (token !== galleryToken) return;
         const list = await SnapBackend.fetchComments(cur.item.syncKey);
         if (token !== galleryToken) return;
-        if (Array.isArray(list) && list.length) {
-          // 与本机已有留言合并去重，避免云端少一条时把本机留言冲掉
-          const before = Array.isArray(cur.item.comments) ? cur.item.comments.length : 0;
-          mergeComments(cur.item, list);
-          if (cur.item.comments.length !== before) {
-            cur.badge.textContent = commentSummary(cur.item);
-          }
-          if (cur.item.comments.length) cur.badge.classList.add("has");
-        }
+        if (!Array.isArray(list) || !list.length) continue;
+        // 与本机已有留言合并去重，避免云端少一条时把本机留言冲掉
+        const before = Array.isArray(cur.item.comments) ? cur.item.comments.length : 0;
+        mergeComments(cur.item, list);
+        if (cur.item.comments.length === before) continue;
+        if (cur.sub) cur.sub.textContent = gallerySubText(cur.item);
+        await cur.refresh();
       }
     };
     await Promise.all([worker(), worker(), worker()]);
@@ -1612,18 +1653,8 @@
 
       const meta = document.createElement("span");
       meta.className = "gallery-meta";
-      const count = Array.isArray(item.comments) ? item.comments.length : 0;
-      const sub = item.remote
-        ? (item.dateText ? `${item.dateText} · 云端` : "云端保存")
-        : `${item.dateText || ""} · ${count} 条留言`;
-      meta.innerHTML = `<strong>${escapeHtml(item.title || "美好时光")}</strong><small>${escapeHtml(sub)}</small>`;
-
-      const badge = document.createElement("span");
-      badge.className = "gallery-comment" + (count ? " has" : "");
-      badge.textContent = commentSummary(item);
-      meta.appendChild(badge);
-      pairs.push({ item, badge });
-
+      meta.innerHTML = `<strong>${escapeHtml(item.title || "美好时光")}</strong><small>${escapeHtml(gallerySubText(item))}</small>`;
+      const sub = meta.querySelector("small");
       card.appendChild(meta);
 
       card.addEventListener("click", () => openHistoryAt(idx));
@@ -1636,6 +1667,14 @@
         img.alt = "海报";
         img.src = item.remoteUrl;
         card.insertBefore(img, meta);
+        pairs.push({
+          item, sub,
+          refresh: async () => {
+            if (Array.isArray(item.comments) && item.comments.length) {
+              await paintRemoteThumb(card, img, item, token);
+            }
+          }
+        });
         return;
       }
 
@@ -1644,21 +1683,11 @@
       thumb.width = 270;
       thumb.height = 455;
       card.insertBefore(thumb, meta);
-
-      (async () => {
-        try {
-          const full = document.createElement("canvas");
-          await SnapStory.renderPoster(full, item);
-          if (token !== galleryToken) return;
-          thumb.getContext("2d").drawImage(full, 0, 0, thumb.width, thumb.height);
-        } catch (e) {
-          const img = new Image();
-          img.onload = () => {
-            try { thumb.getContext("2d").drawImage(img, 0, 0, thumb.width, thumb.height); } catch (e2) { /* 忽略 */ }
-          };
-          img.src = item.photo || "";
-        }
-      })();
+      drawLocalThumb(thumb, item, token);
+      pairs.push({
+        item, sub,
+        refresh: async () => { await drawLocalThumb(thumb, item, token); }
+      });
     });
 
     // 本机先出卡片，再异步用云端留言补全（换设备后也能看到）
